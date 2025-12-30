@@ -63,7 +63,6 @@ void go::symbol::Reader::initialize() {
         mInitialized = true;
         return;
     }
-    std::cout << "Go version: " << mVersion->minor << std::endl;
 
     mModuleDataAddress = findModuleData();
 

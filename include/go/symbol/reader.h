@@ -2,12 +2,13 @@
 #define GO_SYMBOL_READER_H
 
 
-#include <elf/symbol.h>
+#include <go/symbol/symbol.h>
 #include <go/symbol/interface.h>
 #include <go/symbol/build_info.h>
 #include <go/symbol/struct.h>
 #include <go/symbol/module_data.h>
 #include <go/symbol/pc_header.h>
+#include <elf/symbol.h>
 
 
 
