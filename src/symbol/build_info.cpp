@@ -24,8 +24,10 @@ std::optional<go::Version> go::symbol::BuildInfo::version() {
     if (!mPointerFree) {
         std::optional<std::string> str = readString(buffer + INFO_OFFSET);
 
-        if (!str)
+        if (!str) {
+            LOG_ERROR("Failed to read version string");
             return std::nullopt;
+        }
 
         return parseVersion(*str);
     }

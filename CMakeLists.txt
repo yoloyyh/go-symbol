@@ -22,6 +22,10 @@ add_library(
         src/symbol/symbol.cpp
         src/symbol/build_info.cpp
         src/symbol/interface.cpp
+        src/symbol/struct.cpp
+        src/symbol/module_data.cpp
+        src/go/symbol/pc_header.cpp
+        src/go/symbol/struct_field.cpp
 )
 
 target_include_directories(
