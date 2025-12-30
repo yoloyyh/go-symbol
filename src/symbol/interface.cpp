@@ -11,11 +11,25 @@ go::symbol::InterfaceTable::InterfaceTable(
         endian::Converter converter
 ) : mReader(std::move(reader)), mSection(std::move(section)), mVersion(version), mTypes(types), mBase(base),
     mPtrSize(ptrSize), mConverter(converter) {
+        mCount = mSection->size() / mPtrSize;
+        mData = mSection->data();
+}
 
+go::symbol::InterfaceTable::InterfaceTable(
+        elf::Reader reader,
+        const std::byte* data,
+        size_t size,
+        Version version,
+        uint64_t types,
+        uint64_t base,
+        size_t ptrSize,
+        endian::Converter converter
+) : mReader(std::move(reader)), mData(data), mCount(size), mVersion(version), mTypes(types), mBase(base),
+    mPtrSize(ptrSize) ,mConverter(converter) {
 }
 
 size_t go::symbol::InterfaceTable::size() const {
-    return mSection->size() / mPtrSize;
+    return mCount;
 }
 
 go::symbol::Interface go::symbol::InterfaceTable::operator[](size_t index) const {
@@ -23,7 +37,7 @@ go::symbol::Interface go::symbol::InterfaceTable::operator[](size_t index) const
 }
 
 go::symbol::InterfaceIterator go::symbol::InterfaceTable::begin() const {
-    return {this, mSection->data()};
+    return {this, mData};
 }
 
 go::symbol::InterfaceIterator go::symbol::InterfaceTable::end() const {
@@ -37,7 +51,6 @@ go::symbol::InterfaceIterator::InterfaceIterator(const go::symbol::InterfaceTabl
 
 go::symbol::Interface::Interface(const go::symbol::InterfaceTable *table, uint64_t address)
         : mTable(table), mAddress(address) {
-
 }
 
 uint64_t go::symbol::Interface::address() const {

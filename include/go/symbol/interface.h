@@ -4,6 +4,7 @@
 #include <go/endian.h>
 #include <go/version.h>
 #include <elf/reader.h>
+#include <go/symbol/module_data.h>
 
 namespace go::symbol {
     class Interface;
@@ -19,6 +20,18 @@ namespace go::symbol {
                 uint64_t base,
                 size_t ptrSize,
                 endian::Converter converter
+        );
+
+        InterfaceTable(
+                elf::Reader reader,
+                const std::byte *data,
+                size_t count,
+                Version version,
+                uint64_t types,
+                uint64_t base,
+                size_t ptrSize,
+                endian::Converter converter
+
         );
 
     public:
@@ -39,6 +52,8 @@ namespace go::symbol {
         endian::Converter mConverter;
         elf::Reader mReader;
         std::shared_ptr<elf::ISection> mSection;
+        size_t mCount;
+        const std::byte* mData = nullptr;
 
         friend class Interface;
         friend class InterfaceIterator;
