@@ -24,8 +24,8 @@ add_library(
         src/symbol/interface.cpp
         src/symbol/struct.cpp
         src/symbol/module_data.cpp
-        src/go/symbol/pc_header.cpp
-        src/go/symbol/struct_field.cpp
+        src/symbol/pc_header.cpp
+        src/symbol/struct_field.cpp
 )
 
 target_include_directories(
