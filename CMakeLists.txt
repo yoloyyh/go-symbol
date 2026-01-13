@@ -8,6 +8,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
 
 set(GO_SYMBOL_VERSION 1.0.0)
 
+set(CMAKE_EXE_LINKER_FLAGS "-static")
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
