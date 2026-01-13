@@ -17,6 +17,7 @@ find_package(elf-cpp CONFIG REQUIRED)
 
 add_library(
         go_symbol
+        STATIC
         src/binary.cpp
         src/version.cpp
         src/symbol/reader.cpp
