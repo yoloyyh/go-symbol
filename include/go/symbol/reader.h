@@ -38,12 +38,15 @@ namespace go::symbol {
         std::optional<InterfaceTable> interfaces(uint64_t base = 0);
         std::optional<StructTable> typeLinks(uint64_t base = 0);
         std::optional<std::string> findSymtabByKey(const std::string &key);
+        std::optional<uint64_t> findSymbolAddress(const std::string &key);
 
     private:
-        void initialize();
+        void ensureVersion();
+        void ensureModuleData();
         std::optional<uint64_t> findModuleData();
         bool validateModuleData(uint64_t address, uint64_t pclntab_address);
         bool findSymtabSymbol();
+        std::optional<std::pair<std::shared_ptr<elf::ISection>, uint64_t>> findSectionAndBase(const std::string& sectionName, uint64_t base);
 
 
 
@@ -51,7 +54,6 @@ namespace go::symbol {
         elf::Reader mReader;
         std::filesystem::path mPath;
         std::optional<go::Version> mVersion;
-        bool mInitialized = false;
         std::optional<uint64_t> mModuleDataAddress;
         std::optional<elf::SymbolTable> mSymbolTable;
     };
