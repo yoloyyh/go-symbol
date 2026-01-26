@@ -16,6 +16,7 @@ go::symbol::StructTable::StructTable(
         endian::Converter converter ) : mReader(reader), mSection(std::move(section)), mVersion(version), mTypes(types), mBase(base), mConverter(converter)  {
 
     mCount = mSection->size() / 4;
+    mPtrSize = mReader && mReader->header()->ident()[EI_CLASS] == ELFCLASS64 ? 8 : 4;
 }
 
 go::symbol::StructTable::StructTable(
@@ -27,6 +28,7 @@ go::symbol::StructTable::StructTable(
         uint64_t base,
         endian::Converter converter
 ) : mReader(reader), mData(data), mCount(count), mVersion(version), mTypes(types), mBase(base), mConverter(converter) {
+    mPtrSize = mReader && mReader->header()->ident()[EI_CLASS] == ELFCLASS64 ? 8 : 4;
 }
 
 size_t go::symbol::StructTable::size() const {
@@ -34,11 +36,19 @@ size_t go::symbol::StructTable::size() const {
 }
 
 go::symbol::Struct go::symbol::StructTable::operator[](size_t index) const {
-    auto it = begin();
-    for (size_t i = 0; i < index; ++i) {
-        ++it;
+    const std::byte* p = nullptr;
+    if (mSection) {
+        p = mSection->data();
+    } else {
+        p = mData;
     }
-    return *it;
+    if (!p) {
+        return {this, mReader, 0, mPtrSize};
+    }
+
+    uint32_t type_offset = mConverter(p + index * 4, 4);
+    uint64_t type_address = mTypes + type_offset;
+    return {this, mReader, type_address, mPtrSize};
 }
 
 go::symbol::StructIterator go::symbol::StructTable::begin() const {
@@ -76,8 +86,7 @@ go::symbol::Struct go::symbol::StructIterator::operator*() {
     uint32_t type_offset = mTable->converter()(mP, 4);
 
     uint64_t type_address = mTable->mTypes + type_offset;
-    size_t ptrSize = mTable->mReader->header()->ident()[EI_CLASS] == ELFCLASS64 ? 8 : 4;
-    return {mTable, mTable->mReader, type_address, ptrSize};
+    return {mTable, mTable->mReader, type_address, mTable->mPtrSize};
 }
 
 go::symbol::StructIterator &go::symbol::StructIterator::operator++() {
@@ -106,20 +115,26 @@ uint64_t go::symbol::Struct::address() const {
 }
 
 std::optional<std::string> go::symbol::Struct::name() const {
-    auto rbuf = mReader->readVirtualMemory(mAddress, mPtrSize * 8);
+    if (mNameCache) {
+        return *mNameCache;
+    }
+
+    size_t name_off_offset = (mPtrSize == 8 ? 40 : 24);
+    auto rbuf = mReader->readVirtualMemory(mAddress + name_off_offset, 4);
     if (!rbuf) return std::nullopt;
-    auto rbuf_ptr = rbuf->data();
-    uint64_t nameOff = mTable->converter()(rbuf_ptr + (mPtrSize == 8 ? 40 : 24), 4);
+    uint64_t nameOff = mTable->converter()(rbuf->data(), 4);
     if (!nameOff) return std::nullopt;
     const std::byte* nbuf = mReader->virtualMemory(mTable->mTypes + nameOff);
     if (!nbuf) return std::nullopt;
     if (mTable->mVersion <= Version{1,16}) {
         size_t len = (std::to_integer<size_t>(nbuf[1]) << 8) | std::to_integer<size_t>(nbuf[2]);
-        return std::string((const char*)nbuf + 3, len);
+        mNameCache = std::string((const char*)nbuf + 3, len);
+        return *mNameCache;
     }
     auto u = go::binary::uVarInt(nbuf + 1);
     if (!u) return std::nullopt;
-    return std::string((const char*)nbuf + 1 + u->second, (size_t)u->first);
+    mNameCache = std::string((const char*)nbuf + 1 + u->second, (size_t)u->first);
+    return *mNameCache;
 }
 
 const go::symbol::StructTable *go::symbol::Struct::table() const {

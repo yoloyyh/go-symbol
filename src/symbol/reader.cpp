@@ -37,26 +37,7 @@ void go::symbol::Reader::ensureVersion() {
         return;
     }
 
-    auto buildInfoOpt = buildInfo();
-    if (buildInfoOpt) {
-        mVersion = buildInfoOpt->version();
-        LOG_INFO("build info version: %d.%d", mVersion->major, mVersion->minor);
-    }
-
-    if (!mVersion) {
-        const auto& sections = mReader.sections();
-        auto pclntab_it = std::find_if(sections.begin(), sections.end(), [](const auto &section) {
-            return section->name() == SYMBOL_SECTION;
-        });
-
-        if (pclntab_it != sections.end()) {
-            uint64_t pclntab_addr = (*pclntab_it)->address();
-            PcHeader header(mReader, pclntab_addr, ptrSize());
-            if(header.version()) {
-                mVersion = header.version();
-            }
-        }
-    }
+    mVersion = version();
 
     if (!mVersion) {
         LOG_ERROR("Failed to determine Go version.");
@@ -101,10 +82,15 @@ bool go::symbol::Reader::findSymtabSymbol() {
 }
 
 std::optional<go::Version> go::symbol::Reader::version() {
+    LOG_INFO("start to get version");
+    if (mVersion) {
+        return mVersion;
+    }
     std::optional<go::symbol::BuildInfo> buildInfo = this->buildInfo();
 
     if (buildInfo) {
-        return buildInfo->version();
+        mVersion = buildInfo->version();
+        return mVersion;
     }
     auto findGoVersion = findSymtabByKey(VERSION_SYMBOL);
     if (findGoVersion) {
@@ -347,6 +333,7 @@ std::optional<std::pair<std::shared_ptr<elf::ISection>, uint64_t>> go::symbol::R
 }
 
 std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_t base) {
+    LOG_INFO("start to get interfaces");
     ensureVersion();
     if (!mVersion) {
         LOG_ERROR("Initialization failed: no version");
@@ -355,6 +342,7 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
 
     auto typesAddr = findSymbolAddress(TYPES_SYMBOL);
     if (typesAddr) {
+        LOG_INFO("get runtime.types: %p", typesAddr);
         auto result = findSectionAndBase(INTERFACE_SECTION, base);
         if (result) {
             return InterfaceTable(mReader,
@@ -373,6 +361,7 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
         LOG_ERROR("Initialization failed or moduledata not found");
         return std::nullopt;
     }
+    LOG_INFO("start to get moduladata");
 
     ModuleData module_data(mReader, *mModuleDataAddress, *mVersion, endian::Converter(endian()), ptrSize());
     auto types_base_opt = module_data.types();
@@ -383,6 +372,7 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
         return std::nullopt;
     }
 
+    LOG_INFO("start to get interface table");
     return InterfaceTable(mReader,
                           itablinks_opt->first,
                           itablinks_opt->second,
@@ -441,6 +431,7 @@ std::optional<std::string> go::symbol::Reader::findSymtabByKey(const std::string
 }
 
 std::optional<go::symbol::StructTable> go::symbol::Reader::typeLinks(uint64_t base) {
+    LOG_INFO("start to get typeLinks");
     ensureVersion();
     if (!mVersion) {
         LOG_ERROR("Initialization failed: no version");
@@ -449,8 +440,10 @@ std::optional<go::symbol::StructTable> go::symbol::Reader::typeLinks(uint64_t ba
 
     auto typesAddr = findSymbolAddress(TYPES_SYMBOL);
     if (typesAddr) {
+        LOG_INFO("get runtime.types addr: %p", typesAddr);
         auto result = findSectionAndBase(TYPELINK_SECTION, base);
         if (result) {
+            LOG_INFO("start to parse struct");
             return StructTable(
                     &mReader,
                     result->first->data(),
