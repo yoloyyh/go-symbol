@@ -32,41 +32,57 @@ go::symbol::Reader::Reader(elf::Reader reader, std::filesystem::path path)
 
 }
 
-void go::symbol::Reader::initialize() {
-    if (mInitialized) {
+void go::symbol::Reader::ensureVersion() {
+    if (mVersion) {
         return;
     }
 
-    auto buildInfoOpt = buildInfo();
-    if (buildInfoOpt) {
-        mVersion = buildInfoOpt->version();
-        LOG_INFO("build info version: %d.%d", mVersion->major, mVersion->minor);
-    }
-
-    if (!mVersion) {
-        const auto& sections = mReader.sections();
-        auto pclntab_it = std::find_if(sections.begin(), sections.end(), [](const auto &section) {
-            return section->name() == SYMBOL_SECTION;
-        });
-
-        if (pclntab_it != sections.end()) {
-            uint64_t pclntab_addr = (*pclntab_it)->address();
-            PcHeader header(mReader, pclntab_addr, ptrSize());
-            if(header.version()) {
-                mVersion = header.version();
-            }
-        }
-    }
+    mVersion = version();
 
     if (!mVersion) {
         LOG_ERROR("Failed to determine Go version.");
-        mInitialized = true;
+        return;
+    }
+}
+
+void go::symbol::Reader::ensureModuleData() {
+    if (mModuleDataSearched) {
+        return;
+    }
+
+    mModuleDataSearched = true;
+    ensureVersion();
+    if (!mVersion) {
         return;
     }
 
     mModuleDataAddress = findModuleData();
+}
 
-    mInitialized = true;
+void go::symbol::Reader::ensureRuntimeTypesAddress() {
+    if (mRuntimeTypesAddressSearched) {
+        return;
+    }
+    mRuntimeTypesAddressSearched = true;
+    mRuntimeTypesAddress = findSymbolAddress(TYPES_SYMBOL);
+}
+
+void go::symbol::Reader::ensureModuleDataObject() {
+    if (mModuleData) {
+        return;
+    }
+
+    ensureModuleData();
+    if (!mModuleDataAddress) {
+        return;
+    }
+
+    ensureVersion();
+    if (!mVersion) {
+        return;
+    }
+
+    mModuleData.emplace(mReader, *mModuleDataAddress, *mVersion, endian::Converter(endian()), ptrSize());
 }
 
 size_t go::symbol::Reader::ptrSize() {
@@ -93,10 +109,14 @@ bool go::symbol::Reader::findSymtabSymbol() {
 }
 
 std::optional<go::Version> go::symbol::Reader::version() {
+    if (mVersion) {
+        return mVersion;
+    }
     std::optional<go::symbol::BuildInfo> buildInfo = this->buildInfo();
 
     if (buildInfo) {
-        return buildInfo->version();
+        mVersion = buildInfo->version();
+        return mVersion;
     }
     auto findGoVersion = findSymtabByKey(VERSION_SYMBOL);
     if (findGoVersion) {
@@ -297,16 +317,78 @@ std::optional<go::symbol::SymbolTable> go::symbol::Reader::symbols(AccessMethod 
     return SymbolTable(version, converter, (const std::byte *) base + (*it)->address() - minVA, 0);
 }
 
+std::optional<std::pair<std::shared_ptr<elf::ISection>, uint64_t>> go::symbol::Reader::findSectionAndBase(const std::string& sectionName, uint64_t base) {
+    const auto& sections = mReader.sections();
+    auto section_it = std::find_if(sections.begin(), sections.end(), [&](const auto &section) {
+        return section->name() == sectionName;
+    });
+
+    if (section_it == sections.end()) {
+        return std::nullopt;
+    }
+
+    bool dynamic = mReader.header()->type() == ET_DYN;
+    uint64_t base_addr = 0;
+    if (dynamic) {
+        std::vector<std::shared_ptr<elf::ISegment>> loads;
+        std::vector<std::shared_ptr<elf::ISegment>> segments = mReader.segments();
+
+        std::copy_if(
+                segments.begin(),
+                segments.end(),
+                std::back_inserter(loads),
+                [](const auto &segment) {
+                    return segment->type() == PT_LOAD;
+                }
+        );
+
+        if (!loads.empty()) {
+             Elf64_Addr minVA = std::min_element(
+                    loads.begin(),
+                    loads.end(),
+                    [](const auto &i, const auto &j) {
+                        return i->virtualAddress() < j->virtualAddress();
+                    }
+            )->operator*().virtualAddress() & ~(PAGE_SIZE - 1);
+
+            base_addr = base - minVA;
+        }
+    }
+
+    return std::make_pair(*section_it, base_addr);
+}
+
 std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_t base) {
-    initialize();
-    if (!mVersion || !mModuleDataAddress) {
+    ensureVersion();
+    if (!mVersion) {
+        LOG_ERROR("Initialization failed: no version");
+        return std::nullopt;
+    }
+
+    ensureRuntimeTypesAddress();
+    auto typesAddr = mRuntimeTypesAddress;
+    if (typesAddr) {
+        auto result = findSectionAndBase(INTERFACE_SECTION, base);
+        if (result) {
+            return InterfaceTable(mReader,
+                                  result->first->data(),
+                                  result->first->size() / ptrSize(),
+                                  *mVersion,
+                                  *typesAddr,
+                                  result->second,
+                                  ptrSize(),
+                                  endian::Converter(endian()));
+        }
+    }
+
+    ensureModuleDataObject();
+    if (!mModuleDataAddress || !mModuleData) {
         LOG_ERROR("Initialization failed or moduledata not found");
         return std::nullopt;
     }
 
-    ModuleData module_data(mReader, *mModuleDataAddress, *mVersion, endian::Converter(endian()), ptrSize());
-    auto types_base_opt = module_data.types();
-    auto itablinks_opt = module_data.itabLinks();
+    auto types_base_opt = mModuleData->types();
+    auto itablinks_opt = mModuleData->itabLinks();
 
     if (!types_base_opt || !itablinks_opt) {
         LOG_ERROR("Failed to get types or itablinks from moduledata");
@@ -322,6 +404,22 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
                           ptrSize(),
                           endian::Converter(endian()));
 
+}
+
+std::optional<uint64_t> go::symbol::Reader::findSymbolAddress(const std::string &key) {
+    if (!mSymbolTable) {
+        findSymtabSymbol();
+    }
+    if (mSymbolTable) {
+        auto symbolIterator = std::find_if(mSymbolTable->begin(), mSymbolTable->end(), [&key](const auto &symbol) {
+            return symbol->name() == key;
+        });
+        if (symbolIterator != mSymbolTable->end()) {
+            return (*symbolIterator)->value();
+        }
+    }
+
+    return std::nullopt;
 }
 
 std::optional<std::string> go::symbol::Reader::findSymtabByKey(const std::string &key) {
@@ -355,15 +453,36 @@ std::optional<std::string> go::symbol::Reader::findSymtabByKey(const std::string
 }
 
 std::optional<go::symbol::StructTable> go::symbol::Reader::typeLinks(uint64_t base) {
-    initialize();
-    if (!mVersion || !mModuleDataAddress) {
+    ensureVersion();
+    if (!mVersion) {
+        LOG_ERROR("Initialization failed: no version");
+        return std::nullopt;
+    }
+
+    ensureRuntimeTypesAddress();
+    auto typesAddr = mRuntimeTypesAddress;
+    if (typesAddr) {
+        auto result = findSectionAndBase(TYPELINK_SECTION, base);
+        if (result) {
+            return StructTable(
+                    &mReader,
+                    result->first->data(),
+                    result->first->size() / 4,
+                    *mVersion,
+                    *typesAddr,
+                    result->second,
+                    endian::Converter(endian()));
+        }
+    }
+
+    ensureModuleDataObject();
+    if (!mModuleDataAddress || !mModuleData) {
         LOG_ERROR("Initialization failed or moduledata not found");
         return std::nullopt;
     }
 
-    ModuleData module_data(mReader, *mModuleDataAddress, *mVersion, endian::Converter(endian()), ptrSize());
-    auto types_base_opt = module_data.types();
-    auto typelinks_opt = module_data.typeLinks();
+    auto types_base_opt = mModuleData->types();
+    auto typelinks_opt = mModuleData->typeLinks();
 
     if (!types_base_opt || !typelinks_opt) {
         LOG_ERROR("Failed to get types or typelinks from moduledata");
