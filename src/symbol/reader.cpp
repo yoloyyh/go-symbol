@@ -46,7 +46,34 @@ void go::symbol::Reader::ensureVersion() {
 }
 
 void go::symbol::Reader::ensureModuleData() {
-    if (mModuleDataAddress) {
+    if (mModuleDataSearched) {
+        return;
+    }
+
+    mModuleDataSearched = true;
+    ensureVersion();
+    if (!mVersion) {
+        return;
+    }
+
+    mModuleDataAddress = findModuleData();
+}
+
+void go::symbol::Reader::ensureRuntimeTypesAddress() {
+    if (mRuntimeTypesAddressSearched) {
+        return;
+    }
+    mRuntimeTypesAddressSearched = true;
+    mRuntimeTypesAddress = findSymbolAddress(TYPES_SYMBOL);
+}
+
+void go::symbol::Reader::ensureModuleDataObject() {
+    if (mModuleData) {
+        return;
+    }
+
+    ensureModuleData();
+    if (!mModuleDataAddress) {
         return;
     }
 
@@ -55,7 +82,7 @@ void go::symbol::Reader::ensureModuleData() {
         return;
     }
 
-    mModuleDataAddress = findModuleData();
+    mModuleData.emplace(mReader, *mModuleDataAddress, *mVersion, endian::Converter(endian()), ptrSize());
 }
 
 size_t go::symbol::Reader::ptrSize() {
@@ -340,7 +367,8 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
         return std::nullopt;
     }
 
-    auto typesAddr = findSymbolAddress(TYPES_SYMBOL);
+    ensureRuntimeTypesAddress();
+    auto typesAddr = mRuntimeTypesAddress;
     if (typesAddr) {
         LOG_INFO("get runtime.types: %p", typesAddr);
         auto result = findSectionAndBase(INTERFACE_SECTION, base);
@@ -356,16 +384,15 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
         }
     }
 
-    ensureModuleData();
-    if (!mModuleDataAddress) {
+    ensureModuleDataObject();
+    if (!mModuleDataAddress || !mModuleData) {
         LOG_ERROR("Initialization failed or moduledata not found");
         return std::nullopt;
     }
     LOG_INFO("start to get moduladata");
 
-    ModuleData module_data(mReader, *mModuleDataAddress, *mVersion, endian::Converter(endian()), ptrSize());
-    auto types_base_opt = module_data.types();
-    auto itablinks_opt = module_data.itabLinks();
+    auto types_base_opt = mModuleData->types();
+    auto itablinks_opt = mModuleData->itabLinks();
 
     if (!types_base_opt || !itablinks_opt) {
         LOG_ERROR("Failed to get types or itablinks from moduledata");
@@ -438,7 +465,8 @@ std::optional<go::symbol::StructTable> go::symbol::Reader::typeLinks(uint64_t ba
         return std::nullopt;
     }
 
-    auto typesAddr = findSymbolAddress(TYPES_SYMBOL);
+    ensureRuntimeTypesAddress();
+    auto typesAddr = mRuntimeTypesAddress;
     if (typesAddr) {
         LOG_INFO("get runtime.types addr: %p", typesAddr);
         auto result = findSectionAndBase(TYPELINK_SECTION, base);
@@ -455,15 +483,14 @@ std::optional<go::symbol::StructTable> go::symbol::Reader::typeLinks(uint64_t ba
         }
     }
 
-    ensureModuleData();
-    if (!mModuleDataAddress) {
+    ensureModuleDataObject();
+    if (!mModuleDataAddress || !mModuleData) {
         LOG_ERROR("Initialization failed or moduledata not found");
         return std::nullopt;
     }
 
-    ModuleData module_data(mReader, *mModuleDataAddress, *mVersion, endian::Converter(endian()), ptrSize());
-    auto types_base_opt = module_data.types();
-    auto typelinks_opt = module_data.typeLinks();
+    auto types_base_opt = mModuleData->types();
+    auto typelinks_opt = mModuleData->typeLinks();
 
     if (!types_base_opt || !typelinks_opt) {
         LOG_ERROR("Failed to get types or typelinks from moduledata");

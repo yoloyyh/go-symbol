@@ -43,6 +43,8 @@ namespace go::symbol {
     private:
         void ensureVersion();
         void ensureModuleData();
+        void ensureRuntimeTypesAddress();
+        void ensureModuleDataObject();
         std::optional<uint64_t> findModuleData();
         bool validateModuleData(uint64_t address, uint64_t pclntab_address);
         bool findSymtabSymbol();
@@ -55,6 +57,10 @@ namespace go::symbol {
         std::filesystem::path mPath;
         std::optional<go::Version> mVersion;
         std::optional<uint64_t> mModuleDataAddress;
+        bool mModuleDataSearched{false};
+        std::optional<ModuleData> mModuleData;
+        bool mRuntimeTypesAddressSearched{false};
+        std::optional<uint64_t> mRuntimeTypesAddress;
         std::optional<elf::SymbolTable> mSymbolTable;
     };
 
