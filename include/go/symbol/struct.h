@@ -61,6 +61,9 @@ namespace go::symbol {
         elf::Reader* mReader;
         uint64_t mAddress;
         size_t mPtrSize;
+        mutable std::optional<std::string> mNameCache;
+        mutable std::optional<int> mKindCache;
+        mutable std::optional<std::pair<uint64_t, size_t>> mFieldsCache;
 
     };
 
@@ -107,6 +110,7 @@ namespace go::symbol {
         uint64_t mTypes;
         uint64_t mBase;
         endian::Converter mConverter;
+        size_t mPtrSize = 0;
     };
 
     class StructIterator {
