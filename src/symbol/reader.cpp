@@ -109,7 +109,6 @@ bool go::symbol::Reader::findSymtabSymbol() {
 }
 
 std::optional<go::Version> go::symbol::Reader::version() {
-    LOG_INFO("start to get version");
     if (mVersion) {
         return mVersion;
     }
@@ -360,7 +359,6 @@ std::optional<std::pair<std::shared_ptr<elf::ISection>, uint64_t>> go::symbol::R
 }
 
 std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_t base) {
-    LOG_INFO("start to get interfaces");
     ensureVersion();
     if (!mVersion) {
         LOG_ERROR("Initialization failed: no version");
@@ -370,7 +368,6 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
     ensureRuntimeTypesAddress();
     auto typesAddr = mRuntimeTypesAddress;
     if (typesAddr) {
-        LOG_INFO("get runtime.types: %p", typesAddr);
         auto result = findSectionAndBase(INTERFACE_SECTION, base);
         if (result) {
             return InterfaceTable(mReader,
@@ -389,7 +386,6 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
         LOG_ERROR("Initialization failed or moduledata not found");
         return std::nullopt;
     }
-    LOG_INFO("start to get moduladata");
 
     auto types_base_opt = mModuleData->types();
     auto itablinks_opt = mModuleData->itabLinks();
@@ -399,7 +395,6 @@ std::optional<go::symbol::InterfaceTable> go::symbol::Reader::interfaces(uint64_
         return std::nullopt;
     }
 
-    LOG_INFO("start to get interface table");
     return InterfaceTable(mReader,
                           itablinks_opt->first,
                           itablinks_opt->second,
@@ -458,7 +453,6 @@ std::optional<std::string> go::symbol::Reader::findSymtabByKey(const std::string
 }
 
 std::optional<go::symbol::StructTable> go::symbol::Reader::typeLinks(uint64_t base) {
-    LOG_INFO("start to get typeLinks");
     ensureVersion();
     if (!mVersion) {
         LOG_ERROR("Initialization failed: no version");
@@ -468,10 +462,8 @@ std::optional<go::symbol::StructTable> go::symbol::Reader::typeLinks(uint64_t ba
     ensureRuntimeTypesAddress();
     auto typesAddr = mRuntimeTypesAddress;
     if (typesAddr) {
-        LOG_INFO("get runtime.types addr: %p", typesAddr);
         auto result = findSectionAndBase(TYPELINK_SECTION, base);
         if (result) {
-            LOG_INFO("start to parse struct");
             return StructTable(
                     &mReader,
                     result->first->data(),
